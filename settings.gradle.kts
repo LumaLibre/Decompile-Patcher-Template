@@ -1,1 +1,1 @@
-rootProject.name = "Decompile-Patcher-Template"
+rootProject.name = "Decompile-Patcher-Template" // TODO: Configure

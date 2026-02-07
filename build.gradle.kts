@@ -214,7 +214,7 @@ tasks.register("setupVineFlower") {
             return@doLast
         }
 
-        println("Fetching latest Vineflower release info...")
+        println("Fetching latest VineFlower release info...")
 
         val apiUrl = URI("https://api.github.com/repos/Vineflower/vineflower/releases/latest").toURL()
         val json = JsonSlurper().parse(apiUrl)
@@ -275,7 +275,7 @@ tasks.register("distributeSources") {
 
         println("Distributing decompiled sources to modules...")
 
-        // Distribute Java sources
+
         decompileConfig.packageMappings.forEach { (packagePath, moduleTarget) ->
             val sourcePackageDir = generatedDir.resolve(packagePath)
 
@@ -306,7 +306,7 @@ tasks.register("distributeSources") {
             println("✓ Copied $fileCount files to $moduleTarget")
         }
 
-        // Distribute resources
+
         if (decompileConfig.resourceMappings.isNotEmpty()) {
             val byModule = decompileConfig.resourceMappings.entries.groupBy({ it.value }, { it.key })
 
@@ -428,6 +428,18 @@ tasks.register("createPatch") {
                     sourceDir.copyRecursively(targetDir, overwrite = true)
                 }
             }
+            decompileConfig.resourceMappings.forEach { (resourceName, _) -> // resources into __resources__ subdir
+                val sourceResource = generatedOutputDir.asFile.resolve(resourceName)
+                if (sourceResource.exists()) {
+                    val targetResource = gitDir.resolve("__resources__/$resourceName")
+                    if (sourceResource.isDirectory) {
+                        sourceResource.copyRecursively(targetResource, overwrite = true)
+                    } else {
+                        targetResource.parentFile.mkdirs()
+                        sourceResource.copyTo(targetResource, overwrite = true)
+                    }
+                }
+            }
 
             gitOps.add(gitDir)
             gitOps.commit(gitDir, "Original decompiled sources")
@@ -441,6 +453,25 @@ tasks.register("createPatch") {
 
                 if (moduleSrcDir != null && moduleSrcDir.exists() && moduleSrcDir.walkTopDown().any { it.isFile }) {
                     moduleSrcDir.copyRecursively(targetDir, overwrite = true)
+                }
+            }
+            decompileConfig.resourceMappings.forEach { (resourceName, moduleTarget) -> // compare module resources
+                val moduleResourcesDir = resolveModuleResourcesDir(moduleTarget) ?: return@forEach
+                val moduleResource = moduleResourcesDir.resolve(resourceName)
+                val targetResource = gitDir.resolve("__resources__/$resourceName")
+
+                if (targetResource.exists()) {
+                    if (targetResource.isDirectory) targetResource.deleteRecursively()
+                    else targetResource.delete()
+                }
+
+                if (moduleResource.exists()) {
+                    if (moduleResource.isDirectory) {
+                        moduleResource.copyRecursively(targetResource, overwrite = true)
+                    } else {
+                        targetResource.parentFile.mkdirs()
+                        moduleResource.copyTo(targetResource, overwrite = true)
+                    }
                 }
             }
 
@@ -467,6 +498,26 @@ tasks.register("createPatch") {
                     println("  ✓ Updated generated: $packagePath")
                 } else if (generatedTargetDir.exists()) {
                     println("  ✓ Removed from generated: $packagePath")
+                }
+            }
+            decompileConfig.resourceMappings.forEach { (resourceName, moduleTarget) -> // sync resources to generated
+                val moduleResourcesDir = resolveModuleResourcesDir(moduleTarget) ?: return@forEach
+                val moduleResource = moduleResourcesDir.resolve(resourceName)
+                val generatedResource = generatedOutputDir.asFile.resolve(resourceName)
+
+                if (generatedResource.exists()) {
+                    if (generatedResource.isDirectory) generatedResource.deleteRecursively()
+                    else generatedResource.delete()
+                }
+
+                if (moduleResource.exists()) {
+                    if (moduleResource.isDirectory) {
+                        moduleResource.copyRecursively(generatedResource, overwrite = true)
+                    } else {
+                        generatedResource.parentFile.mkdirs()
+                        moduleResource.copyTo(generatedResource, overwrite = true)
+                    }
+                    println("Updated generated resource: $resourceName")
                 }
             }
 
@@ -516,6 +567,18 @@ tasks.register("applyPatch") {
                 val targetDir = gitDir.resolve(packagePath)
                 moduleSrcDir.copyRecursively(targetDir, overwrite = true)
             }
+            decompileConfig.resourceMappings.forEach { (resourceName, moduleTarget) -> // setup resources
+                val moduleResourcesDir = resolveModuleResourcesDir(moduleTarget) ?: return@forEach
+                val moduleResource = moduleResourcesDir.resolve(resourceName)
+                if (!moduleResource.exists()) return@forEach
+                val targetResource = gitDir.resolve("__resources__/$resourceName")
+                if (moduleResource.isDirectory) {
+                    moduleResource.copyRecursively(targetResource, overwrite = true)
+                } else {
+                    targetResource.parentFile.mkdirs()
+                    moduleResource.copyTo(targetResource, overwrite = true)
+                }
+            }
 
             gitOps.add(gitDir)
             gitOps.commit(gitDir, "Current state")
@@ -544,6 +607,34 @@ tasks.register("applyPatch") {
                     println("  ✓ Updated $moduleTarget (+ generated sources)")
                 } else {
                     println("  ✓ Updated $moduleTarget (package deleted)")
+                }
+            }
+            decompileConfig.resourceMappings.forEach { (resourceName, moduleTarget) -> // copy resources back
+                val gitResource = gitDir.resolve("__resources__/$resourceName")
+                val moduleResourcesDir = resolveModuleResourcesDir(moduleTarget) ?: return@forEach
+                val moduleResource = moduleResourcesDir.resolve(resourceName)
+                val generatedResource = generatedOutputDir.asFile.resolve(resourceName)
+
+                if (moduleResource.exists()) {
+                    if (moduleResource.isDirectory) moduleResource.deleteRecursively()
+                    else moduleResource.delete()
+                }
+                if (generatedResource.exists()) {
+                    if (generatedResource.isDirectory) generatedResource.deleteRecursively()
+                    else generatedResource.delete()
+                }
+
+                if (gitResource.exists()) {
+                    if (gitResource.isDirectory) {
+                        gitResource.copyRecursively(moduleResource, overwrite = true)
+                        gitResource.copyRecursively(generatedResource, overwrite = true)
+                    } else {
+                        moduleResource.parentFile.mkdirs()
+                        generatedResource.parentFile.mkdirs()
+                        gitResource.copyTo(moduleResource, overwrite = true)
+                        gitResource.copyTo(generatedResource, overwrite = true)
+                    }
+                    println("Updated resource: $resourceName")
                 }
             }
 
@@ -598,6 +689,19 @@ tasks.register("applyAllPatches") {
                             moduleSrcDir.copyRecursively(targetDir, overwrite = true)
                         }
                     }
+                    decompileConfig.resourceMappings.forEach { (resourceName, moduleTarget) ->
+                        val moduleResourcesDir = resolveModuleResourcesDir(moduleTarget) ?: return@forEach
+                        val moduleResource = moduleResourcesDir.resolve(resourceName)
+                        if (moduleResource.exists()) {
+                            val targetResource = gitDir.resolve("__resources__/$resourceName")
+                            if (moduleResource.isDirectory) {
+                                moduleResource.copyRecursively(targetResource, overwrite = true)
+                            } else {
+                                targetResource.parentFile.mkdirs()
+                                moduleResource.copyTo(targetResource, overwrite = true)
+                            }
+                        }
+                    }
 
                     gitOps.add(gitDir)
                     gitOps.commit(gitDir, "Current state")
@@ -619,6 +723,33 @@ tasks.register("applyAllPatches") {
 
                             if (generatedTargetDir.exists()) generatedTargetDir.deleteRecursively()
                             if (gitSourceDir.exists()) gitSourceDir.copyRecursively(generatedTargetDir, overwrite = true)
+                        }
+                        decompileConfig.resourceMappings.forEach { (resourceName, moduleTarget) ->
+                            val gitResource = gitDir.resolve("__resources__/$resourceName")
+                            val moduleResourcesDir = resolveModuleResourcesDir(moduleTarget) ?: return@forEach
+                            val moduleResource = moduleResourcesDir.resolve(resourceName)
+                            val generatedResource = generatedOutputDir.asFile.resolve(resourceName)
+
+                            if (moduleResource.exists()) {
+                                if (moduleResource.isDirectory) moduleResource.deleteRecursively()
+                                else moduleResource.delete()
+                            }
+                            if (generatedResource.exists()) {
+                                if (generatedResource.isDirectory) generatedResource.deleteRecursively()
+                                else generatedResource.delete()
+                            }
+
+                            if (gitResource.exists()) {
+                                if (gitResource.isDirectory) {
+                                    gitResource.copyRecursively(moduleResource, overwrite = true)
+                                    gitResource.copyRecursively(generatedResource, overwrite = true)
+                                } else {
+                                    moduleResource.parentFile.mkdirs()
+                                    generatedResource.parentFile.mkdirs()
+                                    gitResource.copyTo(moduleResource, overwrite = true)
+                                    gitResource.copyTo(generatedResource, overwrite = true)
+                                }
+                            }
                         }
 
                         println("  ✓ Success (+ updated generated sources)")
@@ -688,7 +819,7 @@ tasks.register("patchStatus") {
 
             if (moduleSrcDir == null) return@forEach
 
-            // Check if entire package was deleted
+
             if (!moduleSrcDir.exists() && generatedDir.exists()) {
                 val deletedFiles = generatedDir.walkTopDown()
                     .filter { it.isFile && it.extension == "java" }
@@ -742,6 +873,66 @@ tasks.register("patchStatus") {
                 moduleNew.forEach { println("  ➕ New: $it") }
                 moduleDeleted.forEach { println("  🗑️  Deleted: $it") }
             }
+        }
+
+        // check resources
+        val resourceModified = mutableListOf<String>()
+        val resourceNew = mutableListOf<String>()
+        val resourceDeleted = mutableListOf<String>()
+
+        decompileConfig.resourceMappings.forEach { (resourceName, moduleTarget) ->
+            val moduleResourcesDir = resolveModuleResourcesDir(moduleTarget) ?: return@forEach
+            val moduleResource = moduleResourcesDir.resolve(resourceName)
+            val generatedResource = generatedOutputDir.asFile.resolve(resourceName)
+
+            if (moduleResource.isDirectory || generatedResource.isDirectory) {
+                // directory resource - compare files inside
+                val moduleFiles = if (moduleResource.exists())
+                    moduleResource.walkTopDown().filter { it.isFile }.toSet() else emptySet()
+                val generatedFiles = if (generatedResource.exists())
+                    generatedResource.walkTopDown().filter { it.isFile }.toSet() else emptySet()
+
+                moduleFiles.forEach { modFile ->
+                    val relPath = modFile.relativeTo(moduleResource)
+                    val genFile = generatedResource.resolve(relPath)
+                    if (!genFile.exists()) {
+                        resourceNew.add("$resourceName/$relPath")
+                        newFilesCount++
+                    } else if (genFile.readText() != modFile.readText()) {
+                        resourceModified.add("$resourceName/$relPath")
+                        modifiedCount++
+                    }
+                }
+                generatedFiles.forEach { genFile ->
+                    val relPath = genFile.relativeTo(generatedResource)
+                    val modFile = moduleResource.resolve(relPath)
+                    if (!modFile.exists()) {
+                        resourceDeleted.add("$resourceName/$relPath")
+                        deletedCount++
+                    }
+                }
+            } else {
+                // single file resource
+                if (!moduleResource.exists() && generatedResource.exists()) {
+                    resourceDeleted.add(resourceName)
+                    deletedCount++
+                } else if (moduleResource.exists() && !generatedResource.exists()) {
+                    resourceNew.add(resourceName)
+                    newFilesCount++
+                } else if (moduleResource.exists() && generatedResource.exists()) {
+                    if (moduleResource.readText() != generatedResource.readText()) {
+                        resourceModified.add(resourceName)
+                        modifiedCount++
+                    }
+                }
+            }
+        }
+
+        if (resourceModified.isNotEmpty() || resourceNew.isNotEmpty() || resourceDeleted.isNotEmpty()) {
+            println("\n📋 Resources")
+            resourceModified.forEach { println("  ✏️  Modified: $it") }
+            resourceNew.forEach { println("  ➕ New: $it") }
+            resourceDeleted.forEach { println("  🗑️  Deleted: $it") }
         }
 
         println("\n" + "=".repeat(60))
