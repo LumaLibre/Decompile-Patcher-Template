@@ -24,8 +24,8 @@ build/decompiler/
 # Source code
 api/
 core/
-core21/
 nms/
+src/
 
 # OS files
 .DS_Store
