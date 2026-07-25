@@ -1,0 +1,48 @@
+name: Release
+
+# Publishing is driven entirely by version branches: pushing `ver/1.0.0` releases 1.0.0.
+# There is deliberately no workflow_dispatch — a manual run could publish from any ref, which is
+# exactly what this trigger is meant to prevent. Use "Re-run jobs" on a failed run instead.
+on:
+  push:
+    branches:
+      - "ver/*"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - uses: gradle/actions/setup-gradle@v5
+
+      # A branch that disagrees with the declared version would publish the wrong number, and a
+      # `/releases` repository will not let you overwrite it. Fail before that happens.
+      - name: Check the branch matches the project version
+        run: |
+          project_version="$(./gradlew -q printVersion)"
+          branch_version="${GITHUB_REF_NAME#ver/}"
+          if [ "$project_version" != "$branch_version" ]; then
+            echo "::error::Branch ${GITHUB_REF_NAME} declares version ${branch_version}, but the project version is ${project_version}."
+            exit 1
+          fi
+          echo "Publishing version ${project_version}."
+
+      - name: Publish to repo.jsinco.dev/releases
+        env:
+          REPO_USERNAME: ${{ secrets.REPO_USERNAME }}
+          REPO_PASSWORD: ${{ secrets.REPO_PASSWORD }}
+        run: ./gradlew publishRelease
