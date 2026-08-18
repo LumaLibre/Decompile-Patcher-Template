@@ -43,6 +43,22 @@ abstract class AnvilExtension(private val project: Project) {
      */
     abstract val failOnApplyError: Property<Boolean>
 
+    /**
+     * Whether to rewrite decompiler output that is not valid Java. Defaults to `true`.
+     *
+     * A class the decompiler cannot handle comes out as a bare comment block, and a method it
+     * cannot handle comes out with an empty body — both compile-fail later rather than failing the
+     * decompile. With this on, the class is reconstructed from the jar's bytecode and the method
+     * body becomes a `throw`, so the build still compiles.
+     */
+    abstract val repairDecompileFailures: Property<Boolean>
+
+    /**
+     * Whether decompiler trouble fails the build. Defaults to `false`. a jar with one bad class
+     * should still give you the other few hundred.
+     */
+    abstract val failOnDecompileError: Property<Boolean>
+
     /** packagePath (e.g. `dev/lumas/example`) -> module project directory. */
     internal abstract val packageMappings: MapProperty<String, Directory>
 

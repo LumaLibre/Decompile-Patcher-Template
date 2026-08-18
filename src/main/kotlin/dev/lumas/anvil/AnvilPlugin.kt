@@ -68,6 +68,9 @@ class AnvilPlugin : Plugin<Project> {
             inputJar.set(ext.inputJar)
             outputDir.set(ext.generatedDir)
             decompilerClasspath.from(decompilerConfiguration)
+            repairFailures.set(ext.repairDecompileFailures)
+            failOnDecompileError.set(ext.failOnDecompileError)
+            javaHome.set(project.providers.systemProperty("java.home"))
         }
 
         val distributeTask = registerSourceTask<DistributeSourcesTask>(
@@ -211,6 +214,8 @@ class AnvilPlugin : Plugin<Project> {
         ext.javaSourceRoot.convention("src/main/java")
         ext.resourceRoot.convention("src/main/resources")
         ext.failOnApplyError.convention(false)
+        ext.repairDecompileFailures.convention(true)
+        ext.failOnDecompileError.convention(false)
     }
 
     /** `-Panvil.foo` (no value) means true; `-Panvil.foo=false` turns it off. */
